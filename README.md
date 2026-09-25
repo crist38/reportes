@@ -33,11 +33,28 @@ Sin `.env.local` la app arranca en **modo demo** con 18 OV de ejemplo. Para leer
 
 | Flujo | Origen en Odoo |
 |---|---|
-| Técnico | Campo de selección `x_estado_tecnico` en `sale.order` |
+| Técnico | Etapa de la oportunidad del CRM vinculada a la OV (**Ganado = Liberado**); si no hay oportunidad, campo `x_estado_tecnico` |
 | Financiero | Facturas publicadas de la OV (`account.move`): % cobrado vs. anticipo y total facturado |
 | Producción | `mrp.production` de la OV (vía `mrp_production_ids`, o por `origin` si no existe) |
 | Despacho | `stock.picking` de salida de la OV |
 | Instalación | Campo de selección `x_estado_instalacion` en `sale.order` |
+
+### Estado técnico desde el CRM
+
+La OV toma la etapa de su oportunidad (`sale.order.opportunity_id`, que Odoo llena al crear la cotización
+desde la oportunidad). Si no tiene, se usa la única oportunidad del mismo cliente, si existe.
+
+| Etapa CRM | Técnico |
+|---|---|
+| Cualquier etapa marcada como ganada (Won / Ganado) | Liberado |
+| New / Nuevo | Sin medir |
+| Qualified / Calificado | Medido |
+| Proposition / Propuesta | En revisión |
+| Negotiation / Negociación | Aprobado |
+| Otras etapas abiertas | En revisión |
+| Perdida o archivada | Sin datos |
+
+Para mapear etapas propias: `ODOO_CRM_ETAPAS="Visita a obra:medido,Aprobado cliente:aprobado"`.
 
 ### Crear los campos Técnico e Instalación en Odoo
 

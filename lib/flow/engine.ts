@@ -29,6 +29,11 @@ function fromSelection(track: TrackId, value: string | null): TrackState {
   return { index, detail: TRACK_BY_ID[track].stages[index].description };
 }
 
+function withOrigin(state: TrackState, origen: string | null | undefined): TrackState {
+  if (!origen) return state;
+  return { ...state, detail: state.index === null ? origen : `${state.detail} (${origen})` };
+}
+
 export function sumPayments(order: RawOrder): { paid: number; invoiced: number } {
   let paid = 0;
   let invoiced = 0;
@@ -96,7 +101,7 @@ function deriveDespacho(order: RawOrder): TrackState {
 
 export function deriveTracks(order: RawOrder, policy: FlowPolicy): Record<TrackId, TrackState> {
   return {
-    tecnico: fromSelection("tecnico", order.tecnico),
+    tecnico: withOrigin(fromSelection("tecnico", order.tecnico), order.tecnicoOrigen),
     financiero: deriveFinanciero(order, policy),
     produccion: deriveProduccion(order),
     despacho: deriveDespacho(order),

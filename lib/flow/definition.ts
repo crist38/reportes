@@ -32,7 +32,8 @@ export const TRACKS: TrackDef[] = [
   {
     id: "tecnico",
     label: "Técnico",
-    source: "Campo de selección x_estado_tecnico en sale.order (Studio o módulo propio).",
+    source:
+      "Etapa de la oportunidad del CRM vinculada a la OV (Ganado = Liberado). Si no hay oportunidad, campo de selección x_estado_tecnico en sale.order.",
     styles: {
       text: "text-orange-600",
       solid: "bg-orange-500 text-white border-orange-500",

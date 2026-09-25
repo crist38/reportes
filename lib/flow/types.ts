@@ -57,6 +57,8 @@ export interface RawOrder {
   currency: string;
   /** Valor del campo de selección técnico; null si el campo no existe en Odoo. */
   tecnico: string | null;
+  /** De dónde salió el estado técnico (p. ej. "CRM: Won · Oportunidad de Juan"). */
+  tecnicoOrigen?: string | null;
   /** Valor del campo de selección de instalación; null si el campo no existe en Odoo. */
   instalacion: string | null;
   invoices: RawInvoice[];

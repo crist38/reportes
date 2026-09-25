@@ -2,6 +2,7 @@ import "server-only";
 
 import type { MoState, PickingState, RawInvoice, RawOrder, RawPicking, RawProduction, RawSaleLine } from "@/lib/flow/types";
 import { OdooClient, m2oName, type Domain } from "./client";
+import { parseStageMap, tecnicoDesdeCrm } from "./crm";
 
 // Traduce los modelos de Odoo 19 (sale.order, account.move, mrp.production, stock.picking)
 // al formato RawOrder que usa el motor de flujos.
@@ -26,6 +27,7 @@ interface SaleOrderRow {
   picking_ids: number[];
   mrp_production_ids?: number[];
   tag_ids?: number[];
+  opportunity_id?: unknown;
   [custom: string]: unknown;
 }
 
@@ -64,9 +66,9 @@ export async function fetchOdooOrders(
   const warnings: string[] = [];
   const soFields = await client.fieldNames("sale.order");
 
-  const optional = [opts.tecnicoField, opts.instalacionField, "mrp_production_ids", "tag_ids"];
-  for (const f of [opts.tecnicoField, opts.instalacionField]) {
-    if (!soFields.has(f)) warnings.push(`El campo ${f} no existe en sale.order: ese flujo se mostrará "sin datos".`);
+  const optional = [opts.tecnicoField, opts.instalacionField, "mrp_production_ids", "tag_ids", "opportunity_id"];
+  if (!soFields.has(opts.instalacionField)) {
+    warnings.push(`El campo ${opts.instalacionField} no existe en sale.order: el flujo de instalación se mostrará "sin datos".`);
   }
 
   const domain: Domain = [["state", "=", "sale"]];
@@ -117,6 +119,16 @@ export async function fetchOdooOrders(
   ]);
   const tagName = new Map(tags.map((t) => [t.id, t.name]));
 
+  const crm = await fetchCrmTecnico(client, orders, soFields.has("opportunity_id"));
+  const sinCrm = orders.length - crm.byOrder.size;
+  if (crm.error) warnings.push(`No se pudo leer el CRM (${crm.error}); el estado técnico sale solo de ${opts.tecnicoField}.`);
+  else if (sinCrm > 0) {
+    warnings.push(
+      `${sinCrm} de ${orders.length} OV no tienen oportunidad en el CRM` +
+        (soFields.has(opts.tecnicoField) ? ` y usan el campo ${opts.tecnicoField}.` : `: su estado técnico queda "sin datos". Crea las cotizaciones desde la oportunidad para vincularlas.`),
+    );
+  }
+
   if (productions.originOnly > 0) {
     warnings.push(
       `${productions.originOnly} órdenes de fabricación se vincularon solo por su documento origen (no por la ruta MTO de Odoo).`,
@@ -143,7 +155,8 @@ export async function fetchOdooOrders(
       commitmentDate: so.commitment_date || null,
       amountTotal: so.amount_total,
       currency: m2oName(so.currency_id) ?? "",
-      tecnico: selectionValue(so, opts.tecnicoField, soFields),
+      tecnico: crm.byOrder.get(so.id)?.tecnico ?? selectionValue(so, opts.tecnicoField, soFields),
+      tecnicoOrigen: crm.byOrder.get(so.id)?.origen ?? null,
       instalacion: selectionValue(so, opts.instalacionField, soFields),
       invoices: so.invoice_ids
         .map((id) => moveById.get(id))
@@ -196,6 +209,79 @@ async function fetchLines(client: OdooClient, orderIds: number[]): Promise<Map<n
     ]);
   }
   return byOrder;
+}
+
+interface LeadRow {
+  id: number;
+  name: string;
+  partner_id: unknown;
+  stage_id: unknown;
+  active: boolean;
+}
+
+/**
+ * Estado técnico desde el CRM: oportunidad vinculada a la OV (opportunity_id) o, si no la tiene,
+ * la única oportunidad del mismo cliente. Ganado = Liberado.
+ */
+async function fetchCrmTecnico(client: OdooClient, orders: SaleOrderRow[], hasOpportunityField: boolean) {
+  const byOrder = new Map<number, { tecnico: string | null; origen: string }>();
+  try {
+    const leadFields = ["name", "partner_id", "stage_id", "active"];
+    const ctx = { active_test: false }; // incluir oportunidades perdidas/archivadas
+    const directIds = hasOpportunityField
+      ? orders.map((o) => (Array.isArray(o.opportunity_id) ? Number(o.opportunity_id[0]) : null)).filter((id): id is number => id !== null)
+      : [];
+    const sinVinculo = orders.filter((o) => !Array.isArray(o.opportunity_id) && Array.isArray(o.partner_id));
+    const partnerIds = [...new Set(sinVinculo.map((o) => Number((o.partner_id as [number, string])[0])))];
+
+    const [direct, byPartner] = await Promise.all([
+      directIds.length ? client.call<LeadRow[]>("crm.lead", "read", { ids: [...new Set(directIds)], fields: leadFields, context: ctx }) : [],
+      partnerIds.length
+        ? client.searchRead<LeadRow>("crm.lead", [["type", "=", "opportunity"], ["partner_id", "in", partnerIds]], leadFields, { context: ctx })
+        : [],
+    ]);
+
+    const stageIds = [...new Set([...direct, ...byPartner].map((l) => (Array.isArray(l.stage_id) ? Number(l.stage_id[0]) : null)))].filter(
+      (id): id is number => id !== null,
+    );
+    const stages = new Map(
+      (await client.read<{ id: number; name: string; is_won: boolean }>("crm.stage", stageIds, ["name", "is_won"])).map((s) => [
+        s.id,
+        { name: s.name, isWon: s.is_won },
+      ]),
+    );
+    const map = parseStageMap(process.env.ODOO_CRM_ETAPAS);
+
+    const resolve = (lead: LeadRow, via: string) => {
+      const stage = Array.isArray(lead.stage_id) ? stages.get(Number(lead.stage_id[0])) : undefined;
+      if (!stage) return null;
+      return { tecnico: tecnicoDesdeCrm(stage, lead.active, map), origen: `CRM${via}: ${stage.name} · ${lead.name}` };
+    };
+
+    const directById = new Map(direct.map((l) => [l.id, l]));
+    const leadsByPartner = new Map<number, LeadRow[]>();
+    for (const l of byPartner) {
+      if (!Array.isArray(l.partner_id)) continue;
+      const pid = Number(l.partner_id[0]);
+      leadsByPartner.set(pid, [...(leadsByPartner.get(pid) ?? []), l]);
+    }
+
+    for (const so of orders) {
+      let r = null;
+      if (Array.isArray(so.opportunity_id)) {
+        const lead = directById.get(Number(so.opportunity_id[0]));
+        r = lead ? resolve(lead, "") : null;
+      } else if (Array.isArray(so.partner_id)) {
+        const leads = leadsByPartner.get(Number(so.partner_id[0])) ?? [];
+        // Solo si no hay ambigüedad: una única oportunidad para ese cliente.
+        r = leads.length === 1 ? resolve(leads[0], " (por cliente)") : null;
+      }
+      if (r) byOrder.set(so.id, r);
+    }
+    return { byOrder, error: null };
+  } catch (err) {
+    return { byOrder, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 function selectionValue(so: SaleOrderRow, field: string, fields: Set<string>): string | null {

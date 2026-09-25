@@ -81,7 +81,12 @@ export class OdooClient {
     return (await res.json()) as T;
   }
 
-  searchRead<T>(model: string, domain: Domain, fields: string[], opts: { limit?: number; order?: string } = {}) {
+  searchRead<T>(
+    model: string,
+    domain: Domain,
+    fields: string[],
+    opts: { limit?: number; order?: string; context?: Record<string, unknown> } = {},
+  ) {
     return this.call<T[]>(model, "search_read", { domain, fields, ...opts });
   }
 
