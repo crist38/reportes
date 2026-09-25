@@ -9,6 +9,7 @@ const base: RawOrder = {
   name: "S1",
   partnerId: 1,
   partnerName: "Cliente",
+  tags: [],
   salesperson: null,
   dateOrder: "2026-09-01 10:00:00",
   commitmentDate: null,

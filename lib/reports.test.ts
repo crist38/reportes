@@ -33,7 +33,13 @@ describe("reporte", () => {
     const r = buildReport(views, { periodo: "historico" }, NOW);
     const total = views.flatMap((v) => v.raw.productions).filter((p) => p.state !== "cancel").length;
     expect(r.talleres.reduce((s, t) => s + t.mos, 0)).toBe(total);
-    expect(r.talleres.find((t) => t.nombre === "Taller Termopaneles")!.mos).toBeGreaterThan(0);
+    expect(r.talleres.find((t) => t.nombre === "Taller Termopanel")!.mos).toBeGreaterThan(0);
+  });
+
+  it("filtra la producción por producto", () => {
+    const soloDvh = buildReport(views, { periodo: "historico" }, NOW, (n) => /dvh/i.test(n));
+    const dvh = views.flatMap((v) => v.raw.productions).filter((p) => /dvh/i.test(p.productName) && p.state !== "cancel");
+    expect(soloDvh.produccion.reduce((s, p) => s + p.mos, 0)).toBe(dvh.length);
   });
 
   it("valida los parámetros de la URL", () => {

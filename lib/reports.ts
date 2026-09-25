@@ -1,5 +1,6 @@
 import { TRACKS, isFinalStage, type TrackId } from "./flow/definition";
-import type { OrderView } from "./flow/types";
+import type { MoState, OrderView } from "./flow/types";
+import { TALLERES, tallerDeProducto } from "./talleres";
 
 // Reporte de gestión (estilo del cotizador de termopaneles), calculado sobre las OV ya evaluadas por el motor.
 
@@ -17,11 +18,6 @@ export interface ReportFilters {
   cliente?: number;
 }
 
-/** Talleres, reconocidos por el nombre del producto fabricado. */
-const TALLERES: { nombre: string; match: RegExp }[] = [
-  { nombre: "Taller Termopaneles", match: /dvh|termopanel/i },
-  { nombre: "Taller PVC (Ventanas y Puertas)", match: /ventana|puerta|pvc/i },
-];
 const OTROS = "Otros productos";
 
 export interface TallerStats {
@@ -31,6 +27,14 @@ export interface TallerStats {
   enProceso: number;
   unidades: number;
 }
+
+export const MO_ESTADOS: { state: Exclude<MoState, "cancel">; label: string }[] = [
+  { state: "draft", label: "Borrador" },
+  { state: "confirmed", label: "Confirmada" },
+  { state: "progress", label: "En proceso" },
+  { state: "to_close", label: "Por cerrar" },
+  { state: "done", label: "Terminada" },
+];
 
 export interface ReportData {
   titulo: string;
@@ -46,6 +50,8 @@ export interface ReportData {
   };
   flujo: { track: TrackId; label: string; completas: number; total: number }[];
   talleres: TallerStats[];
+  /** Órdenes de fabricación del período por estado (cantidad en la unidad del producto). */
+  produccion: { state: MoState; label: string; mos: number; cantidad: number }[];
   cobrado: number;
   porCobrar: number;
   ranking: { name: string; pedidos: number; total: number }[];
@@ -80,7 +86,13 @@ export function parseReportFilters(params: Record<string, string | string[] | un
   return { periodo, fecha, cliente: Number.isInteger(cliente) && cliente > 0 ? cliente : undefined };
 }
 
-export function buildReport(all: OrderView[], f: ReportFilters, now: Date = new Date()): ReportData {
+export function buildReport(
+  all: OrderView[],
+  f: ReportFilters,
+  now: Date = new Date(),
+  /** Limita la sección de producción a las MO de ciertos productos (p. ej. los de un taller). */
+  moFilter: (productName: string) => boolean = () => true,
+): ReportData {
   const today = ymd.format(now);
   const thisMonth = today.slice(0, 7);
 
@@ -127,13 +139,19 @@ export function buildReport(all: OrderView[], f: ReportFilters, now: Date = new 
   }
   for (const mo of orders.flatMap((o) => o.raw.productions)) {
     if (mo.state === "cancel") continue;
-    const nombre = TALLERES.find((t) => t.match.test(mo.productName))?.nombre ?? OTROS;
+    const nombre = tallerDeProducto(mo.productName)?.nombre ?? OTROS;
     const s = talleres.get(nombre)!;
     s.mos += 1;
     s.unidades += mo.qty;
     if (mo.state === "done") s.terminadas += 1;
     if (mo.state === "progress" || mo.state === "to_close") s.enProceso += 1;
   }
+
+  const mosPeriodo = orders.flatMap((o) => o.raw.productions).filter((mo) => moFilter(mo.productName));
+  const produccion = MO_ESTADOS.map(({ state, label }) => {
+    const mos = mosPeriodo.filter((mo) => mo.state === state);
+    return { state, label, mos: mos.length, cantidad: mos.reduce((s, mo) => s + mo.qty, 0) };
+  });
 
   const rankingMap = new Map<string, { name: string; pedidos: number; total: number }>();
   for (const o of orders) {
@@ -159,6 +177,7 @@ export function buildReport(all: OrderView[], f: ReportFilters, now: Date = new 
     },
     flujo,
     talleres: [...talleres.values()].filter((t) => t.mos > 0 || t.nombre !== OTROS),
+    produccion,
     cobrado,
     porCobrar: orders.reduce((s, o) => s + Math.max(0, o.raw.amountTotal - o.paid), 0),
     ranking: [...rankingMap.values()].sort((a, b) => b.total - a.total).slice(0, 10),

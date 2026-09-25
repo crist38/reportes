@@ -25,6 +25,7 @@ interface SaleOrderRow {
   invoice_ids: number[];
   picking_ids: number[];
   mrp_production_ids?: number[];
+  tag_ids?: number[];
   [custom: string]: unknown;
 }
 
@@ -63,7 +64,7 @@ export async function fetchOdooOrders(
   const warnings: string[] = [];
   const soFields = await client.fieldNames("sale.order");
 
-  const optional = [opts.tecnicoField, opts.instalacionField, "mrp_production_ids"];
+  const optional = [opts.tecnicoField, opts.instalacionField, "mrp_production_ids", "tag_ids"];
   for (const f of [opts.tecnicoField, opts.instalacionField]) {
     if (!soFields.has(f)) warnings.push(`El campo ${f} no existe en sale.order: ese flujo se mostrará "sin datos".`);
   }
@@ -92,7 +93,9 @@ export async function fetchOdooOrders(
   const invoiceIds = orders.flatMap((o) => o.invoice_ids);
   const pickingIds = orders.flatMap((o) => o.picking_ids);
 
-  const [moves, pickings, productions] = await Promise.all([
+  const tagIds = [...new Set(orders.flatMap((o) => o.tag_ids ?? []))];
+
+  const [moves, pickings, productions, tags] = await Promise.all([
     client.read<MoveRow>("account.move", invoiceIds, [
       "name",
       "move_type",
@@ -109,7 +112,9 @@ export async function fetchOdooOrders(
       "date_done",
     ]),
     fetchProductions(client, orders, soFields.has("mrp_production_ids")),
+    client.read<{ id: number; name: string }>("crm.tag", tagIds, ["name"]),
   ]);
+  const tagName = new Map(tags.map((t) => [t.id, t.name]));
 
   if (productions.originOnly > 0) {
     warnings.push(
@@ -131,6 +136,7 @@ export async function fetchOdooOrders(
       name: so.name,
       partnerId: Array.isArray(so.partner_id) ? Number(so.partner_id[0]) : null,
       partnerName: m2oName(so.partner_id) ?? "—",
+      tags: (so.tag_ids ?? []).map((id) => tagName.get(id)).filter((n): n is string => n !== undefined),
       salesperson: m2oName(so.user_id),
       dateOrder: so.date_order,
       commitmentDate: so.commitment_date || null,

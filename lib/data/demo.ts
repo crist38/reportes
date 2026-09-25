@@ -86,6 +86,8 @@ export function demoOrders(): RawOrder[] {
     name: s.name,
     partnerId: 500 + i,
     partnerName: s.partner,
+    // Igual que en Odoo hoy: ventas etiquetadas "Termopanel" o "Taller PVC" (aún no hay de aluminio).
+    tags: [i % 3 === 0 ? "Termopanel" : "Taller PVC"],
     salesperson: i % 2 ? "Paula Díaz" : "Andrés Vera",
     // Mitad en agosto y mitad en septiembre 2026, para que "Este mes" y la comparación tengan datos.
     dateOrder: `2026-${i % 2 ? "08" : "09"}-${String(1 + i).padStart(2, "0")} 14:00:00`,

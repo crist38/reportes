@@ -37,6 +37,8 @@ export interface RawOrder {
   name: string;
   partnerId: number | null;
   partnerName: string;
+  /** Nombres de las etiquetas de la OV (crm.tag), p. ej. "Taller PVC". */
+  tags: string[];
   salesperson: string | null;
   dateOrder: string;
   commitmentDate: string | null;
