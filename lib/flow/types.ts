@@ -32,6 +32,17 @@ export interface RawPicking {
   dateDone: string | null;
 }
 
+export interface RawSaleLine {
+  /** Descripción de la línea (sale.order.line.name), con el formato del cotizador. */
+  description: string;
+  productName: string;
+  /** Cantidad en la unidad de venta (m² para termopaneles). */
+  qty: number;
+  /** Campos Studio x_studio_ancho_m / x_studio_alto_m, si existen. */
+  anchoM: number | null;
+  altoM: number | null;
+}
+
 export interface RawOrder {
   id: number;
   name: string;
@@ -51,6 +62,7 @@ export interface RawOrder {
   invoices: RawInvoice[];
   productions: RawProduction[];
   pickings: RawPicking[];
+  lines: RawSaleLine[];
 }
 
 export interface TrackState {

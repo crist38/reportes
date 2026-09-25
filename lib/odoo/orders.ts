@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { MoState, PickingState, RawInvoice, RawOrder, RawPicking, RawProduction } from "@/lib/flow/types";
+import type { MoState, PickingState, RawInvoice, RawOrder, RawPicking, RawProduction, RawSaleLine } from "@/lib/flow/types";
 import { OdooClient, m2oName, type Domain } from "./client";
 
 // Traduce los modelos de Odoo 19 (sale.order, account.move, mrp.production, stock.picking)
@@ -95,7 +95,7 @@ export async function fetchOdooOrders(
 
   const tagIds = [...new Set(orders.flatMap((o) => o.tag_ids ?? []))];
 
-  const [moves, pickings, productions, tags] = await Promise.all([
+  const [moves, pickings, productions, tags, lines] = await Promise.all([
     client.read<MoveRow>("account.move", invoiceIds, [
       "name",
       "move_type",
@@ -113,6 +113,7 @@ export async function fetchOdooOrders(
     ]),
     fetchProductions(client, orders, soFields.has("mrp_production_ids")),
     client.read<{ id: number; name: string }>("crm.tag", tagIds, ["name"]),
+    fetchLines(client, orders.map((o) => o.id)),
   ]);
   const tagName = new Map(tags.map((t) => [t.id, t.name]));
 
@@ -149,6 +150,7 @@ export async function fetchOdooOrders(
         .filter((m): m is MoveRow => m !== undefined && (m.move_type === "out_invoice" || m.move_type === "out_refund"))
         .map(toInvoice),
       productions: productionRows.map(toProduction),
+      lines: lines.get(so.id) ?? [],
       pickings: so.picking_ids
         .map((id) => pickingById.get(id))
         .filter((p): p is PickingRow => p !== undefined && p.picking_type_code === "outgoing")
@@ -157,6 +159,43 @@ export async function fetchOdooOrders(
   });
 
   return { orders: result, warnings };
+}
+
+interface SaleLineRow {
+  order_id: unknown;
+  name: string;
+  product_id: unknown;
+  product_uom_qty: number;
+  display_type: string | false;
+  x_studio_ancho_m?: number | false;
+  x_studio_alto_m?: number | false;
+}
+
+/** Líneas de producto de las OV (sin secciones ni notas), agrupadas por OV. */
+async function fetchLines(client: OdooClient, orderIds: number[]): Promise<Map<number, RawSaleLine[]>> {
+  const byOrder = new Map<number, RawSaleLine[]>();
+  if (orderIds.length === 0) return byOrder;
+  const lineFields = await client.fieldNames("sale.order.line");
+  const rows = await client.searchRead<SaleLineRow>(
+    "sale.order.line",
+    [["order_id", "in", orderIds], ["display_type", "=", false]],
+    ["order_id", "name", "product_id", "product_uom_qty", "display_type", ...["x_studio_ancho_m", "x_studio_alto_m"].filter((f) => lineFields.has(f))],
+  );
+  for (const r of rows) {
+    const orderId = Array.isArray(r.order_id) ? Number(r.order_id[0]) : null;
+    if (orderId === null) continue;
+    byOrder.set(orderId, [
+      ...(byOrder.get(orderId) ?? []),
+      {
+        description: r.name ?? "",
+        productName: m2oName(r.product_id) ?? "",
+        qty: r.product_uom_qty,
+        anchoM: r.x_studio_ancho_m || null,
+        altoM: r.x_studio_alto_m || null,
+      },
+    ]);
+  }
+  return byOrder;
 }
 
 function selectionValue(so: SaleOrderRow, field: string, fields: Set<string>): string | null {

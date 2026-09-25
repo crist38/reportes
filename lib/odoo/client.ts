@@ -36,20 +36,36 @@ export function m2oName(value: unknown): string | null {
   return Array.isArray(value) ? String(value[1]) : null;
 }
 
+const MAX_REINTENTOS = 4;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** La estructura de campos casi no cambia: se consulta una vez por proceso. */
+const fieldsCache = new Map<string, Promise<Set<string>>>();
+
 export class OdooClient {
   constructor(private readonly config: OdooConfig) {}
 
+  private async post(model: string, method: string, args: Record<string, unknown>): Promise<Response> {
+    for (let intento = 0; ; intento++) {
+      const res = await fetch(`${this.config.url}/json/2/${model}/${method}`, {
+        method: "POST",
+        headers: {
+          Authorization: `bearer ${this.config.apiKey}`,
+          "X-Odoo-Database": this.config.db,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify(args),
+        cache: "no-store",
+      });
+      // Odoo Online limita las llamadas por minuto: esperar y reintentar.
+      if ((res.status !== 429 && res.status !== 503) || intento >= MAX_REINTENTOS) return res;
+      const retryAfter = Number(res.headers.get("retry-after"));
+      await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** intento);
+    }
+  }
+
   async call<T>(model: string, method: string, args: Record<string, unknown> = {}): Promise<T> {
-    const res = await fetch(`${this.config.url}/json/2/${model}/${method}`, {
-      method: "POST",
-      headers: {
-        Authorization: `bearer ${this.config.apiKey}`,
-        "X-Odoo-Database": this.config.db,
-        "Content-Type": "application/json; charset=utf-8",
-      },
-      body: JSON.stringify(args),
-      cache: "no-store",
-    });
+    const res = await this.post(model, method, args);
     if (!res.ok) {
       let message = `${res.status} ${res.statusText}`;
       let odooName: string | undefined;
@@ -74,8 +90,16 @@ export class OdooClient {
     return this.call<T[]>(model, "read", { ids, fields });
   }
 
-  async fieldNames(model: string): Promise<Set<string>> {
-    const fields = await this.call<Record<string, unknown>>(model, "fields_get", { attributes: ["type"] });
-    return new Set(Object.keys(fields));
+  fieldNames(model: string): Promise<Set<string>> {
+    const key = `${this.config.url}|${this.config.db}|${model}`;
+    let cached = fieldsCache.get(key);
+    if (!cached) {
+      cached = this.call<Record<string, unknown>>(model, "fields_get", { attributes: ["type"] }).then(
+        (fields) => new Set(Object.keys(fields)),
+      );
+      cached.catch(() => fieldsCache.delete(key));
+      fieldsCache.set(key, cached);
+    }
+    return cached;
   }
 }

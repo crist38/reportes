@@ -1,5 +1,6 @@
 import { TRACKS, isFinalStage, type TrackId } from "./flow/definition";
 import type { MoState, OrderView } from "./flow/types";
+import { calcularInsumos, type Insumos } from "./insumos";
 import { TALLERES, tallerDeProducto } from "./talleres";
 
 // Reporte de gestión (estilo del cotizador de termopaneles), calculado sobre las OV ya evaluadas por el motor.
@@ -52,6 +53,8 @@ export interface ReportData {
   talleres: TallerStats[];
   /** Órdenes de fabricación del período por estado (cantidad en la unidad del producto). */
   produccion: { state: MoState; label: string; mos: number; cantidad: number }[];
+  /** Insumos de termopaneles y cristales de las líneas de venta del período. */
+  insumos: Insumos;
   cobrado: number;
   porCobrar: number;
   ranking: { name: string; pedidos: number; total: number }[];
@@ -178,6 +181,7 @@ export function buildReport(
     flujo,
     talleres: [...talleres.values()].filter((t) => t.mos > 0 || t.nombre !== OTROS),
     produccion,
+    insumos: calcularInsumos(orders.flatMap((o) => o.raw.lines)),
     cobrado,
     porCobrar: orders.reduce((s, o) => s + Math.max(0, o.raw.amountTotal - o.paid), 0),
     ranking: [...rankingMap.values()].sort((a, b) => b.total - a.total).slice(0, 10),

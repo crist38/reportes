@@ -3,6 +3,7 @@
 import { Calendar, Printer, RefreshCw, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
+import { refrescarDatos } from "@/app/actions";
 import { PERIODOS, type ReportFilters } from "@/lib/reports";
 
 const SELECT =
@@ -83,7 +84,12 @@ export function ReportControls({
         Imprimir
       </button>
       <button
-        onClick={() => startTransition(() => router.refresh())}
+        onClick={() =>
+          startTransition(async () => {
+            await refrescarDatos();
+            router.refresh();
+          })
+        }
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-500 px-5 py-2.5 text-sm font-bold whitespace-nowrap text-white shadow-sm transition-all hover:bg-teal-600 active:scale-95 sm:w-auto"
       >
         <RefreshCw size={16} className={pending ? "animate-spin" : ""} />

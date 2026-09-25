@@ -1,4 +1,4 @@
-import type { MoState, PickingState, RawInvoice, RawOrder } from "@/lib/flow/types";
+import type { MoState, PickingState, RawInvoice, RawOrder, RawSaleLine } from "@/lib/flow/types";
 
 // Datos de demostración: cubren todas las etapas y los casos de bloqueo e inconsistencia.
 // Se usan cuando no hay ODOO_URL / ODOO_DB / ODOO_API_KEY configurados.
@@ -42,6 +42,44 @@ function pickings(states: PickingState[]) {
       dateDone: state === "done" ? "2026-09-20 16:30:00" : null,
     };
   });
+}
+
+const COLORES = ["Negro", "Mate", "Bronce"];
+const CRISTALES = ["Incoloro 4mm", "Incoloro 5mm", "Reflex Bronce 5mm", "Laminado 6mm"];
+
+/** Líneas con los dos formatos que genera el cotizador de termopaneles. */
+function termopanelLines(i: number): RawSaleLine[] {
+  const DVH = "[TP4+10+4] DVH 4+10+4 (Generico)";
+  const ancho = 600 + ((i * 97) % 700);
+  const alto = 800 + ((i * 53) % 900);
+  const cant = 2 + (i % 5);
+  const m2 = (w: number, h: number, n: number) => Math.round((w * h * n) / 10_000) / 100;
+  return [
+    {
+      description: `[V1] | Cantidad: ${cant} unidades | Termopanel ${ancho} x ${alto} mm | Cristal 1: ${CRISTALES[i % 4]} | Cristal 2: Incoloro 4mm | Separador: 10mm color ${COLORES[i % 3]}`,
+      productName: DVH,
+      qty: m2(ancho, alto, cant),
+      anchoM: ancho / 1000,
+      altoM: (alto * cant) / 1000,
+    },
+    {
+      description: `[V2] Cantidad: ${cant + 3}\nDimensiones: ${alto - 300} x ${ancho} mm\nCristal 1: Incoloro 5mm\nCristal 2: Incoloro 5mm\nSeparador: 12mm - Bronce`,
+      productName: DVH,
+      qty: m2(alto - 300, ancho, cant + 3),
+      anchoM: (alto - 300) / 1000,
+      altoM: (ancho * (cant + 3)) / 1000,
+    },
+  ];
+}
+
+function pvcLine(): RawSaleLine {
+  return {
+    description: "[V1] LINEA ADVANCE Corrediza - 2 guías | 4/9/4 | Blanco",
+    productName: "Ventana 2 hojas correderas PVC (Genérico)",
+    qty: 1,
+    anchoM: null,
+    altoM: null,
+  };
 }
 
 interface Spec {
@@ -98,6 +136,7 @@ export function demoOrders(): RawOrder[] {
     instalacion: s.instalacion,
     invoices: invoices(s.total, s.pays),
     productions: productions(s.mos),
+    lines: i % 3 === 0 ? termopanelLines(i) : [pvcLine()],
     pickings: pickings(s.picks),
   }));
 }

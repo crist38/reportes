@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/flow";
+import { InsumosSection } from "@/components/insumos-section";
 import { ReportControls } from "@/components/report-controls";
 import { SourceBanner } from "@/components/source-banner";
 import type { OrdersResult } from "@/lib/data/orders";
@@ -151,6 +152,8 @@ export function ReportView({
         </div>
       </section>
 
+      <InsumosSection insumos={r.insumos} vacio={insumosVacio(taller)} />
+
       <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
         <SectionTitle icon={GitBranch} title="Avance de los Flujos" />
         <p className="mb-6 text-xs text-slate-400">Ventas del período que ya llegaron a la última etapa de cada flujo.</p>
@@ -267,6 +270,14 @@ export function ReportView({
       </section>
     </div>
   );
+}
+
+function insumosVacio(taller?: TallerDef): string {
+  if (taller?.id === "pvc") {
+    return "Las ventas del Taller PVC no traen el detalle de insumos: sus líneas solo indican la ventana, el DVH (p. ej. 4/9/4) y el color, y las órdenes de fabricación de «Ventana PVC» no tienen componentes en su lista de materiales en Odoo. Cuando esa lista tenga perfiles, herrajes y cristales, su consumo se podrá mostrar aquí.";
+  }
+  if (taller?.id === "aluminio") return "Aún no hay ventas del Taller Aluminio.";
+  return "No hay líneas de termopaneles ni cristales en las ventas del período.";
 }
 
 function ReportTabs({ active }: { active?: TallerId }) {

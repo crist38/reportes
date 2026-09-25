@@ -20,6 +20,7 @@ const base: RawOrder = {
   invoices: [],
   productions: [],
   pickings: [],
+  lines: [],
 };
 
 const inv = (amount: number, residual: number, refund = false) => ({
